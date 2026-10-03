@@ -2,12 +2,15 @@
 
 @{
     ViewData["Title"] = Model?.Title ?? "Detalle";
+
+    var img = string.IsNullOrEmpty(Model?.ImageUrl) ? "/images/placeholder.png"
+                          : (Model.ImageUrl.StartsWith("/") ? Model?.ImageUrl : $"/images/{Model?.ImageUrl}");
 }
 
 <div class="container my-4">
     <div class="row">
         <div class="col-md-6">
-            <img src="@Model.ImageUrl" class="img-fluid img-card" alt="@Model.Title" />
+            <img src="@img" class="img-fluid img-card" alt="@Model.Title" />
             <a asp-controller="Products" asp-action="Editar" asp-route-id="@Model.Id" class="btn btn-outline-secondary mt-3">Editar producto</a>
             <form asp-controller="Products" asp-action="Eliminar" asp-route-id="@Model.Id" method="post" class="d-inline swal-delete-form">
                 @Html.AntiForgeryToken()
