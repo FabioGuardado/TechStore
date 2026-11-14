@@ -16,7 +16,8 @@ Proyecto de la materia Programación Web II (Frontend) - UEES.
 6. [Migraciones: reglas para trabajar en equipo](#6-migraciones-reglas-para-trabajar-en-equipo)
 7. [Estructura del proyecto](#7-estructura-del-proyecto)
 8. [Flujo de trabajo con Git](#8-flujo-de-trabajo-con-git)
-9. [Problemas comunes](#9-problemas-comunes)
+9. [Pruebas automatizadas](#9-pruebas-automatizadas)
+10. [Problemas comunes](#10-problemas-comunes)
 
 ---
 
@@ -34,7 +35,7 @@ Si no tienes `dotnet-ef`:
 dotnet tool install --global dotnet-ef
 ```
 
-> Todos los comandos `dotnet` de esta guía se ejecutan dentro de la carpeta del proyecto: **`TechStore/TechStore`** (donde está `TechStore.csproj`).
+> Los comandos `dotnet` de las secciones 2 a 6 se ejecutan dentro de la carpeta del proyecto: **`TechStore/TechStore`** (donde está `TechStore.csproj`). Los de la [sección 9 (Pruebas automatizadas)](#9-pruebas-automatizadas) se ejecutan desde la raíz de la solución, donde está `TechStore.slnx`.
 
 ---
 
@@ -294,6 +295,9 @@ Migraciones actuales:
 TechStore/
 ├── create_user.sql                 # Crea el login techstore_user en SQL Server
 ├── TechStore.slnx
+├── TechStore.Tests/                # Pruebas unitarias (xUnit + Moq + InMemory)
+├── TechStore.IntegrationTests/     # Pruebas de integración (WebApplicationFactory)
+├── TechStore.E2E/                  # Pruebas E2E (Playwright)
 └── TechStore/
     ├── Program.cs                  # Servicios, Identity, creación de roles y Administrador inicial
     ├── Controllers/
@@ -328,7 +332,78 @@ TechStore/
 
 ---
 
-## 9. Problemas comunes
+## 9. Pruebas automatizadas
+
+Hay tres proyectos de pruebas independientes. **No necesitan SQL Server, user secrets ni migraciones**: usan EF Core InMemory y crean su propio usuario Administrador de prueba.
+
+| Proyecto | Qué prueba | Necesita |
+|---|---|---|
+| `TechStore.Tests` | Unitarias: controladores, servicios y validación de modelos | .NET 10 SDK |
+| `TechStore.IntegrationTests` | Integración con `WebApplicationFactory`: roles, `[Authorize]`, antiforgery, login/registro y CRUD sobre HTTP | .NET 10 SDK |
+| `TechStore.E2E` | Navegador real (Playwright + Chromium) sobre la app levantada con Kestrel | .NET 10 SDK, **internet** y Chromium instalado (ver más abajo) |
+
+> **Dónde ejecutar:** los comandos de esta sección se ejecutan desde la **raíz de la solución** (la carpeta que contiene `TechStore.slnx`), no desde `TechStore/TechStore`.
+
+### Unitarias e integración (primera vez)
+
+No hay nada que preparar. La primera ejecución restaura los paquetes NuGet automáticamente:
+
+```bash
+dotnet test TechStore.Tests
+dotnet test TechStore.IntegrationTests
+```
+
+Para ejecutar **todo menos los E2E** (tarda unos segundos):
+
+```bash
+dotnet test TechStore.slnx --filter "Category!=E2E"
+```
+
+### E2E (primera vez)
+
+Los E2E controlan un navegador real, así que antes de la primera ejecución hay que instalar Chromium. Es un paso **único por máquina** (descarga ~150 MB):
+
+```powershell
+dotnet build TechStore.E2E
+powershell -ExecutionPolicy Bypass -File TechStore.E2E/bin/Debug/net10.0/playwright.ps1 install chromium
+```
+
+En macOS/Linux (con PowerShell instalado) usa `pwsh TechStore.E2E/bin/Debug/net10.0/playwright.ps1 install chromium`; en Linux agrega `--with-deps`.
+
+Después ya puedes ejecutarlos:
+
+```bash
+dotnet test TechStore.E2E
+```
+
+- Tardan alrededor de 30 segundos y corren en modo *headless* (no abren ventana).
+- **Necesitan internet** porque el layout carga Bootstrap, jQuery y SweetAlert desde CDN.
+- No tocan la base de datos: la app de prueba corre en un puerto libre con BD en memoria.
+- Para ver el navegador mientras corren, cambia `Headless = true` por `false` en `TechStore.E2E/E2EFixture.cs`.
+
+### Todo junto, filtros y cobertura
+
+| Qué quiero | Comando |
+|---|---|
+| Ejecutar absolutamente todo | `dotnet test TechStore.slnx` |
+| Solo los E2E | `dotnet test TechStore.slnx --filter "Category=E2E"` |
+| Un test o clase concreta | `dotnet test TechStore.Tests --filter "FullyQualifiedName~ProductsControllerTests"` |
+| Ver el detalle de cada test | `dotnet test TechStore.Tests --logger "console;verbosity=normal"` |
+| Cobertura (unitarias) | `dotnet test TechStore.Tests --collect:"XPlat Code Coverage"` |
+
+### Qué hacer si algo falla
+
+| Síntoma | Solución |
+|---|---|
+| E2E: `Executable doesn't exist ... chromium` | Falta instalar el navegador; ejecuta el comando `playwright.ps1 install chromium` de arriba (después de `dotnet build TechStore.E2E`). |
+| E2E: `playwright.ps1` no existe | Aún no compilaste el proyecto: `dotnet build TechStore.E2E`. |
+| E2E: *timeout* esperando un elemento | Revisa tu conexión a internet (CDN) y que no haya otro proceso usando mucha CPU; vuelve a ejecutar. |
+| `dotnet test` dice que no encuentra el proyecto | Estás en la carpeta equivocada; vuelve a la raíz donde está `TechStore.slnx`. |
+| Error de archivos bloqueados al compilar | Cierra la app si la tienes corriendo (`dotnet run` / Visual Studio) y vuelve a intentar. |
+
+---
+
+## 10. Problemas comunes
 
 | Problema | Solución |
 |---|---|

@@ -126,3 +126,7 @@ app.MapControllerRoute(
 
 
 app.Run();
+
+
+// Expone Program a los proyectos de pruebas de integración y E2E (WebApplicationFactory).
+public partial class Program { }
