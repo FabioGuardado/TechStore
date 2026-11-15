@@ -79,13 +79,41 @@ namespace TechStore.Controllers
             if (usuario == null) return NotFound();
 
             var rolesActuales = await _userManager.GetRolesAsync(usuario);
-            await _userManager.RemoveFromRolesAsync(usuario, rolesActuales);
-            await _userManager.AddToRoleAsync(usuario, rol);
+            var resultadoEliminarRoles =
+                await _userManager.RemoveFromRolesAsync(usuario, rolesActuales);
 
-            // Invalida la sesión actual del usuario para que su nuevo rol se aplique.
+            if (!resultadoEliminarRoles.Succeeded)
+            {
+                _logger.LogError(
+                    "No se pudieron eliminar los roles del usuario {UsuarioId}: {Errores}.",
+                    usuario.Id,
+                    string.Join("; ", resultadoEliminarRoles.Errors.Select(error => error.Code)));
+
+                TempData["ErrorMessage"] = "No se pudieron actualizar los roles del usuario.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            var resultadoAgregarRol = await _userManager.AddToRoleAsync(usuario, rol);
+
+            if (!resultadoAgregarRol.Succeeded)
+            {
+                _logger.LogError(
+                    "No se pudo asignar el rol {Rol} al usuario {UsuarioId}: {Errores}.",
+                    rol,
+                    usuario.Id,
+                    string.Join("; ", resultadoAgregarRol.Errors.Select(error => error.Code)));
+
+                TempData["ErrorMessage"] = "No se pudo actualizar el rol del usuario.";
+                return RedirectToAction(nameof(Index));
+            }
+
             await _userManager.UpdateSecurityStampAsync(usuario);
 
-            _logger.LogInformation("Rol de {Usuario} cambiado a {Rol}.", usuario.UserName, rol);
+            _logger.LogInformation(
+                "El administrador {Administrador} cambió el rol del usuario {UsuarioId} a {Rol}.",
+                User.Identity?.Name ?? "desconocido",
+                usuario.Id,
+                rol);
             TempData["SuccessMessage"] = $"El usuario {usuario.UserName} ahora tiene el rol {rol}.";
             return RedirectToAction(nameof(Index));
         }
@@ -104,9 +132,27 @@ namespace TechStore.Controllers
             if (usuario == null) return NotFound();
 
             // Bloqueo indefinido hasta que un Administrador lo desbloquee.
-            await _userManager.SetLockoutEnabledAsync(usuario, true);
-            await _userManager.SetLockoutEndDateAsync(usuario, DateTimeOffset.MaxValue);
-            await _userManager.UpdateSecurityStampAsync(usuario);
+            var resultadoLockout = await _userManager.SetLockoutEndDateAsync(
+    usuario,
+    DateTimeOffset.MaxValue);
+
+if (!resultadoLockout.Succeeded)
+{
+    _logger.LogError(
+        "No se pudo bloquear al usuario {UsuarioId}: {Errores}.",
+        usuario.Id,
+        string.Join("; ", resultadoLockout.Errors.Select(error => error.Code)));
+
+    TempData["ErrorMessage"] = "No se pudo bloquear la cuenta.";
+    return RedirectToAction(nameof(Index));
+}
+
+await _userManager.UpdateSecurityStampAsync(usuario);
+
+_logger.LogWarning(
+    "El administrador {Administrador} bloqueó al usuario {UsuarioId}.",
+    User.Identity?.Name ?? "desconocido",
+    usuario.Id);
 
             _logger.LogInformation("Usuario {Usuario} bloqueado.", usuario.UserName);
             TempData["SuccessMessage"] = $"El usuario {usuario.UserName} fue bloqueado.";
@@ -120,10 +166,26 @@ namespace TechStore.Controllers
             var usuario = await _userManager.FindByIdAsync(id);
             if (usuario == null) return NotFound();
 
-            await _userManager.SetLockoutEndDateAsync(usuario, null);
-            await _userManager.ResetAccessFailedCountAsync(usuario);
+            var resultadoDesbloqueo =
+    await _userManager.SetLockoutEndDateAsync(usuario, null);
 
-            _logger.LogInformation("Usuario {Usuario} desbloqueado.", usuario.UserName);
+if (!resultadoDesbloqueo.Succeeded)
+{
+    _logger.LogError(
+        "No se pudo desbloquear al usuario {UsuarioId}: {Errores}.",
+        usuario.Id,
+        string.Join("; ", resultadoDesbloqueo.Errors.Select(error => error.Code)));
+
+    TempData["ErrorMessage"] = "No se pudo desbloquear la cuenta.";
+    return RedirectToAction(nameof(Index));
+}
+
+await _userManager.ResetAccessFailedCountAsync(usuario);
+
+_logger.LogInformation(
+    "El administrador {Administrador} desbloqueó al usuario {UsuarioId}.",
+    User.Identity?.Name ?? "desconocido",
+    usuario.Id);
             TempData["SuccessMessage"] = $"El usuario {usuario.UserName} fue desbloqueado.";
             return RedirectToAction(nameof(Index));
         }
