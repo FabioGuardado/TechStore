@@ -10,12 +10,13 @@ namespace TechStore.Services.Interfaces
         /// <summary>Obtiene un producto por su ID, incluyendo su categoría. Devuelve null si no existe.</summary>
         Task<Producto?> ObtenerPorIdAsync(int id);
 
-        Task AgregarAsync(Producto producto);
+        /// <summary>Agrega un producto. Devuelve false si la base de datos no pudo guardarlo.</summary>
+        Task<bool> AgregarAsync(Producto producto);
 
-        /// <summary>Actualiza un producto existente. Devuelve false si no existe.</summary>
+        /// <summary>Actualiza un producto existente. Devuelve false si no existe o no se pudo guardar.</summary>
         Task<bool> EditarAsync(Producto producto);
 
-        /// <summary>Elimina un producto por su ID. Devuelve false si no existe.</summary>
+        /// <summary>Elimina un producto por su ID. Devuelve false si no existe o no se pudo eliminar.</summary>
         Task<bool> EliminarAsync(int id);
     }
 }

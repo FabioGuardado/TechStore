@@ -1,3 +1,6 @@
 <Solution>
+  <Project Path="TechStore.E2E/TechStore.E2E.csproj" />
+  <Project Path="TechStore.IntegrationTests/TechStore.IntegrationTests.csproj" />
+  <Project Path="TechStore.Tests/TechStore.Tests.csproj" />
   <Project Path="TechStore/TechStore.csproj" />
 </Solution>

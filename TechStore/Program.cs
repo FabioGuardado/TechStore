@@ -44,62 +44,23 @@ builder.Services.Configure<SecurityStampValidatorOptions>(options =>
 // Servicios de la capa de negocio (Inyección de Dependencias)
 builder.Services.AddScoped<IProductoService, ProductoService>();
 builder.Services.AddScoped<ICategoriaService, CategoriaService>();
+builder.Services.AddScoped<IImagenService, ImagenService>();
 
 var app = builder.Build();
 
-// Creación de los roles (con RoleManager) y del usuario Administrador inicial (con UserManager).
+// Creación de los roles y del usuario Administrador inicial. Si falla se informa y no se inicia la app.
 using (var scope = app.Services.CreateScope())
 {
-    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
-
-    // Se crea cada rol solo si todavía no existe, para evitar duplicados.
-    foreach (var rol in new[] { "Administrador", "Vendedor", "Cliente" })
+    try
     {
-        if (!await roleManager.RoleExistsAsync(rol))
-        {
-            var resultado = await roleManager.CreateAsync(new IdentityRole(rol));
-            if (!resultado.Succeeded)
-            {
-                app.Logger.LogError("No se pudo crear el rol {Rol}.", rol);
-            }
-        }
+        await DbInicializador.SembrarAsync(scope.ServiceProvider, app.Configuration, app.Logger);
     }
-
-    // Las credenciales del Admin inicial se leen de user secrets (sección AdminInicial),
-    // así no quedan escritas en el código ni en el repositorio.
-    var adminUsuario = builder.Configuration["AdminInicial:Usuario"];
-    var adminEmail = builder.Configuration["AdminInicial:Email"];
-    var adminPassword = builder.Configuration["AdminInicial:Password"];
-
-    if (string.IsNullOrWhiteSpace(adminUsuario) || string.IsNullOrWhiteSpace(adminEmail) || string.IsNullOrWhiteSpace(adminPassword))
+    catch (InicializacionException ex)
     {
-        app.Logger.LogWarning("No se configuró la sección AdminInicial en user secrets; no se creó el usuario Admin inicial.");
-    }
-    else if (await userManager.FindByNameAsync(adminUsuario) == null)
-    {
-        var admin = new IdentityUser { UserName = adminUsuario, Email = adminEmail, EmailConfirmed = true };
-        var resultado = await userManager.CreateAsync(admin, adminPassword);
-
-        if (resultado.Succeeded)
-        {
-            await userManager.AddToRoleAsync(admin, "Administrador");
-            app.Logger.LogInformation("Usuario Admin inicial {Usuario} creado.", adminUsuario);
-        }
-        else
-        {
-            app.Logger.LogError("No se pudo crear el Admin inicial: {Errores}",
-                string.Join(" ", resultado.Errors.Select(e => e.Description)));
-        }
-    }
-
-    // A los usuarios que no tienen un rol asignado se les asigna el rol Cliente.
-    foreach (var usuario in userManager.Users.ToList())
-    {
-        if ((await userManager.GetRolesAsync(usuario)).Count == 0)
-        {
-            await userManager.AddToRoleAsync(usuario, "Cliente");
-        }
+        app.Logger.LogCritical(ex, "La aplicación no pudo inicializarse: {Mensaje}", ex.Message);
+        Console.Error.WriteLine($"ERROR DE ARRANQUE: {ex.Message}");
+        Environment.ExitCode = 1;
+        return;
     }
 }
 
@@ -110,6 +71,9 @@ if (!app.Environment.IsDevelopment())
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
+
+// Las respuestas 400, 403 y 404 sin contenido se muestran con una página amigable.
+app.UseStatusCodePagesWithReExecute("/Home/StatusCode", "?code={0}");
 
 app.UseHttpsRedirection();
 app.UseRouting();
@@ -126,3 +90,7 @@ app.MapControllerRoute(
 
 
 app.Run();
+
+
+// Expone Program a los proyectos de pruebas de integración y E2E (WebApplicationFactory).
+public partial class Program { }

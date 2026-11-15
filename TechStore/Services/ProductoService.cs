@@ -8,10 +8,12 @@ namespace TechStore.Services
     public class ProductoService : IProductoService
     {
         private readonly TechStoreContext _context;
+        private readonly ILogger<ProductoService> _logger;
 
-        public ProductoService(TechStoreContext context)
+        public ProductoService(TechStoreContext context, ILogger<ProductoService> logger)
         {
             _context = context;
+            _logger = logger;
         }
 
         public async Task<IEnumerable<Producto>> ObtenerTodosAsync()
@@ -31,10 +33,10 @@ namespace TechStore.Services
                 .FirstOrDefaultAsync(p => p.ID == id);
         }
 
-        public async Task AgregarAsync(Producto producto)
+        public async Task<bool> AgregarAsync(Producto producto)
         {
             _context.Productos.Add(producto);
-            await _context.SaveChangesAsync();
+            return await GuardarCambiosAsync("agregar", producto.Nombre);
         }
 
         public async Task<bool> EditarAsync(Producto producto)
@@ -50,8 +52,7 @@ namespace TechStore.Services
             existente.Estado = producto.Estado;
             existente.CategoriaId = producto.CategoriaId;
 
-            await _context.SaveChangesAsync();
-            return true;
+            return await GuardarCambiosAsync("editar", producto.Nombre);
         }
 
         public async Task<bool> EliminarAsync(int id)
@@ -60,8 +61,27 @@ namespace TechStore.Services
             if (producto == null) return false;
 
             _context.Productos.Remove(producto);
-            await _context.SaveChangesAsync();
-            return true;
+            return await GuardarCambiosAsync("eliminar", producto.Nombre);
+        }
+
+        // Traduce los fallos de la BD a false para que el controlador muestre un error y no un 500.
+        private async Task<bool> GuardarCambiosAsync(string operacion, string producto)
+        {
+            try
+            {
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                _logger.LogError(ex, "Conflicto de concurrencia al {Operacion} el producto {Producto}.", operacion, producto);
+                return false;
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error de base de datos al {Operacion} el producto {Producto}.", operacion, producto);
+                return false;
+            }
         }
     }
 }

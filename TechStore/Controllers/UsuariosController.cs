@@ -103,6 +103,28 @@ namespace TechStore.Controllers
                     usuario.Id,
                     string.Join("; ", resultadoAgregarRol.Errors.Select(error => error.Code)));
 
+                // Se restauran los roles anteriores para no dejar al usuario sin rol.
+                var resultadoRestaurar = rolesActuales.Count == 0
+                    ? IdentityResult.Success
+                    : await _userManager.AddToRolesAsync(usuario, rolesActuales);
+
+                if (resultadoRestaurar.Succeeded)
+                {
+                    _logger.LogWarning(
+                        "Se restauraron los roles {Roles} del usuario {UsuarioId} tras fallar el cambio a {Rol}.",
+                        string.Join(", ", rolesActuales),
+                        usuario.Id,
+                        rol);
+                }
+                else
+                {
+                    _logger.LogCritical(
+                        "No se pudieron restaurar los roles {Roles} del usuario {UsuarioId}; la cuenta quedó sin rol: {Errores}.",
+                        string.Join(", ", rolesActuales),
+                        usuario.Id,
+                        string.Join("; ", resultadoRestaurar.Errors.Select(error => error.Code)));
+                }
+
                 TempData["ErrorMessage"] = "No se pudo actualizar el rol del usuario.";
                 return RedirectToAction(nameof(Index));
             }
@@ -132,6 +154,7 @@ namespace TechStore.Controllers
             if (usuario == null) return NotFound();
 
             // Bloqueo indefinido hasta que un Administrador lo desbloquee.
+            await _userManager.SetLockoutEnabledAsync(usuario, true);
             var resultadoLockout = await _userManager.SetLockoutEndDateAsync(
     usuario,
     DateTimeOffset.MaxValue);
