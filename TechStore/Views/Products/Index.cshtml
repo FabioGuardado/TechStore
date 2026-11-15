@@ -10,7 +10,17 @@
         @* Solo Administrador y Vendedor pueden agregar productos *@
         @if (User.IsInRole("Administrador") || User.IsInRole("Vendedor"))
         {
-            <a asp-controller="Products" asp-action="Agregar" class="btn btn-primary">Agregar producto</a>
+            <div class="d-flex gap-2">
+                <a asp-controller="Report" asp-action="ProductosPdf" class="btn btn-danger">
+                    Descargar PDF
+                </a>
+                <a asp-controller="Report" asp-action="ProductosExcel" class="btn btn-success">
+                    Descargar Excel
+                </a>
+                <a asp-controller="Products" asp-action="Agregar" class="btn btn-primary">
+                    Agregar producto
+                </a>
+            </div>
         }
     </div>
 
