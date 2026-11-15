@@ -1,4 +1,5 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using TechStore.Data;
 using TechStore.Models;
 using TechStore.Services;
@@ -17,7 +18,7 @@ public class ProductoServiceTests
             CreateProducto("Alfa", categoria),
             CreateProducto("Medio", categoria));
         await context.SaveChangesAsync();
-        var service = new ProductoService(context);
+        var service = new ProductoService(context, NullLogger<ProductoService>.Instance);
 
         var result = (await service.ObtenerTodosAsync()).ToList();
 
@@ -30,7 +31,7 @@ public class ProductoServiceTests
         await using var context = CreateContext();
         context.Productos.Add(CreateProducto("Auriculares", CreateCategoria("Audio")));
         await context.SaveChangesAsync();
-        var service = new ProductoService(context);
+        var service = new ProductoService(context, NullLogger<ProductoService>.Instance);
 
         var result = (await service.ObtenerTodosAsync()).ToList();
 
@@ -41,7 +42,7 @@ public class ProductoServiceTests
     public async Task ObtenerTodos_SinProductos_DevuelveListaVacia()
     {
         await using var context = CreateContext();
-        var service = new ProductoService(context);
+        var service = new ProductoService(context, NullLogger<ProductoService>.Instance);
 
         var result = await service.ObtenerTodosAsync();
 
@@ -55,7 +56,7 @@ public class ProductoServiceTests
         var producto = CreateProducto("Steam Deck", CreateCategoria("Consolas"));
         context.Productos.Add(producto);
         await context.SaveChangesAsync();
-        var service = new ProductoService(context);
+        var service = new ProductoService(context, NullLogger<ProductoService>.Instance);
 
         var result = await service.ObtenerPorIdAsync(producto.ID);
 
@@ -71,7 +72,7 @@ public class ProductoServiceTests
     public async Task ObtenerPorId_ConProductoInexistente_DevuelveNull(int id)
     {
         await using var context = CreateContext();
-        var service = new ProductoService(context);
+        var service = new ProductoService(context, NullLogger<ProductoService>.Instance);
 
         var result = await service.ObtenerPorIdAsync(id);
 
@@ -85,11 +86,12 @@ public class ProductoServiceTests
         var categoria = CreateCategoria("Tablets");
         context.Categorias.Add(categoria);
         await context.SaveChangesAsync();
-        var service = new ProductoService(context);
+        var service = new ProductoService(context, NullLogger<ProductoService>.Instance);
         var producto = CreateProducto("iPad Air", categoria);
 
-        await service.AgregarAsync(producto);
+        var resultado = await service.AgregarAsync(producto);
 
+        Assert.True(resultado);
         var guardado = await context.Productos.SingleAsync();
         Assert.Equal("iPad Air", guardado.Nombre);
         Assert.True(guardado.ID > 0);
@@ -113,7 +115,7 @@ public class ProductoServiceTests
         }
 
         await using var context = CreateContext(databaseName);
-        var service = new ProductoService(context);
+        var service = new ProductoService(context, NullLogger<ProductoService>.Instance);
         var cambios = new Producto
         {
             ID = productoId,
@@ -143,7 +145,7 @@ public class ProductoServiceTests
     public async Task Editar_ConProductoInexistente_DevuelveFalse()
     {
         await using var context = CreateContext();
-        var service = new ProductoService(context);
+        var service = new ProductoService(context, NullLogger<ProductoService>.Instance);
 
         var result = await service.EditarAsync(new Producto { ID = 999, Nombre = "Fantasma" });
 
@@ -165,7 +167,7 @@ public class ProductoServiceTests
         }
 
         await using var context = CreateContext(databaseName);
-        var service = new ProductoService(context);
+        var service = new ProductoService(context, NullLogger<ProductoService>.Instance);
 
         var result = await service.EliminarAsync(productoId);
 
@@ -177,7 +179,7 @@ public class ProductoServiceTests
     public async Task Eliminar_ConProductoInexistente_DevuelveFalse()
     {
         await using var context = CreateContext();
-        var service = new ProductoService(context);
+        var service = new ProductoService(context, NullLogger<ProductoService>.Instance);
 
         var result = await service.EliminarAsync(999);
 

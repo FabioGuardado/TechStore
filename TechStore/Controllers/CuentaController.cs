@@ -122,7 +122,33 @@ namespace TechStore.Controllers
             if (resultado.Succeeded)
             {
                 // Todo usuario que se registra desde la página queda con el rol Cliente.
-                await _userManager.AddToRoleAsync(usuario, "Cliente");
+                var resultadoRol = await _userManager.AddToRoleAsync(usuario, "Cliente");
+
+                if (!resultadoRol.Succeeded)
+                {
+                    _logger.LogError(
+                        "No se pudo asignar el rol Cliente al usuario {Usuario}: {Errores}.",
+                        usuario.UserName,
+                        string.Join("; ", resultadoRol.Errors.Select(error => error.Code)));
+
+                    // Compensación: una cuenta sin rol no podría usar la aplicación.
+                    var resultadoEliminar = await _userManager.DeleteAsync(usuario);
+                    if (resultadoEliminar.Succeeded)
+                    {
+                        _logger.LogWarning("Se eliminó el usuario {Usuario} porque no se le pudo asignar un rol.", usuario.UserName);
+                    }
+                    else
+                    {
+                        _logger.LogCritical(
+                            "No se pudo eliminar el usuario {Usuario} que quedó sin rol: {Errores}.",
+                            usuario.UserName,
+                            string.Join("; ", resultadoEliminar.Errors.Select(error => error.Code)));
+                    }
+
+                    ModelState.AddModelError(string.Empty, "No se pudo completar el registro. Intenta de nuevo.");
+                    return View(model);
+                }
+
                 _logger.LogInformation("Nuevo usuario registrado: {Usuario}.", usuario.UserName);
                 TempData["SuccessMessage"] = "Cuenta creada correctamente. Ya puede iniciar sesión.";
                 return RedirectToAction(nameof(Login));

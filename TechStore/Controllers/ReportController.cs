@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -31,6 +31,18 @@ namespace TechStore.Controllers
 
         [HttpGet]
         public async Task<IActionResult> ProductosPdf()
+        {
+            try
+            {
+                return await GenerarPdfAsync();
+            }
+            catch (Exception ex)
+            {
+                return ErrorDeReporte(ex, "PDF");
+            }
+        }
+
+        private async Task<IActionResult> GenerarPdfAsync()
         {
             var productos = (await _productoService.ObtenerTodosAsync()).ToList();
             var usuario = User.Identity?.Name ?? "desconocido";
@@ -113,6 +125,18 @@ namespace TechStore.Controllers
         [HttpGet]
         public async Task<IActionResult> ProductosExcel()
         {
+            try
+            {
+                return await GenerarExcelAsync();
+            }
+            catch (Exception ex)
+            {
+                return ErrorDeReporte(ex, "Excel");
+            }
+        }
+
+        private async Task<IActionResult> GenerarExcelAsync()
+        {
             var productos = (await _productoService.ObtenerTodosAsync()).ToList();
             var usuario = User.Identity?.Name ?? "desconocido";
 
@@ -187,6 +211,19 @@ namespace TechStore.Controllers
                 memoria.ToArray(),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 "reporte-productos.xlsx");
+        }
+
+        // Un fallo al consultar o generar el archivo no debe terminar en un 500: se informa y se vuelve al listado.
+        private IActionResult ErrorDeReporte(Exception ex, string tipo)
+        {
+            _logger.LogError(
+                ex,
+                "Falló la generación del reporte {Tipo} solicitado por {Usuario}.",
+                tipo,
+                User.Identity?.Name ?? "desconocido");
+
+            TempData["ErrorMessage"] = $"No se pudo generar el reporte {tipo}. Intenta de nuevo.";
+            return RedirectToAction("Index", "Products");
         }
 
         private static void HeaderCell(IContainer container, string texto)

@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Microsoft.EntityFrameworkCore;
 
 namespace TechStore.IntegrationTests;
@@ -166,6 +166,78 @@ public class ProductsFlowTests : IClassFixture<TechStoreFactory>
 
         Assert.Contains(categoria, html);
         Assert.Contains(nombre, html);
+    }
+
+    [Fact]
+    public async Task Details_ConProductoInexistente_MuestraLaPaginaAmigableDeNoEncontrado()
+    {
+        var client = await CreateClienteAutenticadoAsync("Cliente");
+
+        var response = await client.GetAsync("/Products/Details/99999");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var html = await response.LeerHtmlAsync();
+        Assert.Contains("No encontramos esa página", html);
+        Assert.Contains("Volver al inicio", html);
+        Assert.DoesNotContain("Development Mode", html);
+    }
+
+    [Fact]
+    public async Task RutaInexistente_MuestraLaPaginaAmigableDeNoEncontrado()
+    {
+        var client = _factory.CreateClientSinRedirecciones();
+
+        var response = await client.GetAsync("/ruta-inexistente");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Contains("No encontramos esa página", await response.LeerHtmlAsync());
+    }
+
+    [Fact]
+    public async Task Agregar_ConCategoriaInexistente_NoGuardaYMuestraElError()
+    {
+        var nombre = $"SinCat{Guid.NewGuid():N}"[..20];
+        var client = await CreateClienteAutenticadoAsync("Vendedor");
+
+        var response = await client.PostFormularioAsync("/Products/Agregar", "/Products/Agregar", new Dictionary<string, string>
+        {
+            ["Nombre"] = nombre,
+            ["Descripcion"] = "Producto con categoría manipulada.",
+            ["Precio"] = "10",
+            ["Stock"] = "1",
+            ["Estado"] = "Disponible",
+            ["CategoriaId"] = "99999"
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("La categoría seleccionada no existe.", await response.LeerHtmlAsync());
+        Assert.Equal(0, await _factory.ConsultarAsync(c => Task.FromResult(c.Productos.Count(p => p.Nombre == nombre))));
+    }
+
+    [Fact]
+    public async Task Agregar_ConArchivoNoPermitido_MuestraElErrorYNoCreaElProducto()
+    {
+        var nombre = $"Exe{Guid.NewGuid():N}"[..20];
+        var categoriaId = await _factory.CrearCategoriaAsync($"Cat{Guid.NewGuid():N}"[..10]);
+        var client = await CreateClienteAutenticadoAsync("Vendedor");
+        var token = await client.ObtenerTokenAsync("/Products/Agregar");
+        using var contenido = new MultipartFormDataContent
+        {
+            { new StringContent(token), "__RequestVerificationToken" },
+            { new StringContent(nombre), "Nombre" },
+            { new StringContent("Producto con archivo no permitido."), "Descripcion" },
+            { new StringContent("10"), "Precio" },
+            { new StringContent("1"), "Stock" },
+            { new StringContent("Disponible"), "Estado" },
+            { new StringContent(categoriaId.ToString()), "CategoriaId" },
+            { new ByteArrayContent(new byte[] { 1, 2, 3 }), "imageFile", "virus.exe" }
+        };
+
+        var response = await client.PostAsync("/Products/Agregar", contenido);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("La imagen debe ser", await response.LeerHtmlAsync());
+        Assert.Equal(0, await _factory.ConsultarAsync(c => Task.FromResult(c.Productos.Count(p => p.Nombre == nombre))));
     }
 
     private async Task<HttpClient> CreateClienteAutenticadoAsync(string rol)

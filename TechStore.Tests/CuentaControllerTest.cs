@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -248,6 +248,31 @@ public class CuentaControllerTests
         userManager.Verify(u => u.CreateAsync(It.Is<IdentityUser>(x => x.UserName == "fabioguardado" && x.Email == "fabio@correo.com"), "Clave123!"), Times.Once);
         userManager.Verify(u => u.AddToRoleAsync(It.IsAny<IdentityUser>(), "Cliente"), Times.Once);
         VerifyLog(logger, LogLevel.Information, Times.Once());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RegistroPost_CuandoFallaLaAsignacionDelRol_EliminaElUsuarioYDevuelveLaVista(bool eliminarTieneExito)
+    {
+        var logger = new Mock<ILogger<CuentaController>>();
+        var controller = CreateController(out var userManager, out _, logger: logger);
+        userManager.Setup(u => u.CreateAsync(It.IsAny<IdentityUser>(), It.IsAny<string>())).ReturnsAsync(IdentityResult.Success);
+        userManager.Setup(u => u.AddToRoleAsync(It.IsAny<IdentityUser>(), "Cliente"))
+            .ReturnsAsync(IdentityResult.Failed(new IdentityError { Code = "Falla" }));
+        userManager.Setup(u => u.DeleteAsync(It.IsAny<IdentityUser>()))
+            .ReturnsAsync(eliminarTieneExito ? IdentityResult.Success : IdentityResult.Failed(new IdentityError { Code = "Falla" }));
+        var model = CreateRegistro();
+
+        var result = await controller.Registro(model);
+
+        var view = Assert.IsType<ViewResult>(result);
+        Assert.Same(model, view.Model);
+        userManager.Verify(u => u.DeleteAsync(It.IsAny<IdentityUser>()), Times.Once);
+        Assert.Contains(controller.ModelState[string.Empty]!.Errors, e => e.ErrorMessage == "No se pudo completar el registro. Intenta de nuevo.");
+        Assert.Null(controller.TempData["SuccessMessage"]);
+        VerifyLog(logger, LogLevel.Information, Times.Never());
+        VerifyLog(logger, LogLevel.Error, Times.Once());
     }
 
     [Fact]

@@ -1,11 +1,9 @@
 ﻿using System;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using TechStore.Models;
 using TechStore.Services.Interfaces;
@@ -20,18 +18,18 @@ namespace TechStore.Controllers
     {
         private readonly IProductoService _productoService;
         private readonly ICategoriaService _categoriaService;
-        private readonly IWebHostEnvironment _env;
+        private readonly IImagenService _imagenService;
         private readonly ILogger<ProductsController> _logger;
 
         public ProductsController(
             IProductoService productoService,
             ICategoriaService categoriaService,
-            IWebHostEnvironment env,
+            IImagenService imagenService,
             ILogger<ProductsController> logger)
         {
             _productoService = productoService;
             _categoriaService = categoriaService;
-            _env = env;
+            _imagenService = imagenService;
             _logger = logger;
         }
 
@@ -98,9 +96,16 @@ namespace TechStore.Controllers
         {
             if (!ModelState.IsValid)
             {
-                ViewBag.Categorias = (await _categoriaService.ObtenerTodasAsync()).OrderBy(c => c.Nombre).ToList();
-                return View(producto);
+                return await VistaConCategoriasAsync(producto);
             }
+
+            if (!await ValidarCategoriaAsync(producto))
+            {
+                return await VistaConCategoriasAsync(producto);
+            }
+
+            // La imagen solo la define el archivo subido, nunca un valor enviado por el formulario.
+            producto.ImagenUrl = null;
 
             if (imageFile != null && imageFile.Length > 0)
             {
@@ -108,19 +113,44 @@ namespace TechStore.Controllers
                     "El usuario {Usuario} está subiendo una imagen para un producto nuevo.",
                     User.Identity?.Name ?? "anónimo");
 
-                var uploads = Path.Combine(_env.WebRootPath, "images");
-                Directory.CreateDirectory(uploads);
+                var imagen = await _imagenService.GuardarAsync(imageFile);
+                if (!imagen.Exito)
+                {
+                    ModelState.AddModelError(string.Empty, imagen.Error!);
+                    return await VistaConCategoriasAsync(producto);
+                }
 
-                var fileName = $"{Guid.NewGuid()}{Path.GetExtension(imageFile.FileName)}";
-                var filePath = Path.Combine(uploads, fileName);
-
-                await using var stream = new FileStream(filePath, FileMode.Create);
-                await imageFile.CopyToAsync(stream);
-
-                producto.ImagenUrl = fileName;
+                producto.ImagenUrl = imagen.NombreArchivo;
             }
 
-            await _productoService.AgregarAsync(producto);
+            bool guardado;
+            try
+            {
+                guardado = await _productoService.AgregarAsync(producto);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Error al agregar el producto {Nombre}; se descarta la imagen {Imagen}.",
+                    producto.Nombre,
+                    producto.ImagenUrl ?? "(sin imagen)");
+                _imagenService.Eliminar(producto.ImagenUrl);
+                throw;
+            }
+
+            if (!guardado)
+            {
+                // El producto no se guardó: se elimina la imagen recién escrita para no dejarla huérfana.
+                _logger.LogWarning(
+                    "No se pudo agregar el producto {Nombre}; se descarta la imagen {Imagen}.",
+                    producto.Nombre,
+                    producto.ImagenUrl ?? "(sin imagen)");
+                _imagenService.Eliminar(producto.ImagenUrl);
+                producto.ImagenUrl = null;
+                ModelState.AddModelError(string.Empty, "No se pudo guardar el producto. Intenta de nuevo.");
+                return await VistaConCategoriasAsync(producto);
+            }
 
             _logger.LogInformation(
                 "El usuario {Usuario} agregó el producto {ProductoId}.",
@@ -149,8 +179,12 @@ namespace TechStore.Controllers
 
             if (!ModelState.IsValid)
             {
-                ViewBag.Categorias = (await _categoriaService.ObtenerTodasAsync()).OrderBy(c => c.Nombre).ToList();
-                return View(producto);
+                return await VistaConCategoriasAsync(producto);
+            }
+
+            if (!await ValidarCategoriaAsync(producto))
+            {
+                return await VistaConCategoriasAsync(producto);
             }
 
             var existingProduct = await _productoService.ObtenerPorIdAsync(id);
@@ -162,29 +196,56 @@ namespace TechStore.Controllers
             }
 
             var oldImage = existingProduct.ImagenUrl;
+            string? newImage = null;
 
             if (imageFile != null && imageFile.Length > 0)
             {
-                var uploads = Path.Combine(_env.WebRootPath, "images");
-                Directory.CreateDirectory(uploads);
-                var fileName = $"{Guid.NewGuid()}{Path.GetExtension(imageFile.FileName)}";
-                var filePath = Path.Combine(uploads, fileName);
-                await using var stream = new FileStream(filePath, FileMode.Create);
-                await imageFile.CopyToAsync(stream);
-                existingProduct.ImagenUrl = fileName;
-
-                if (!string.IsNullOrEmpty(oldImage))
+                var imagen = await _imagenService.GuardarAsync(imageFile);
+                if (!imagen.Exito)
                 {
-                    var oldimagePath = Path.Combine(_env.WebRootPath, "images", oldImage);
-                    if (System.IO.File.Exists(oldimagePath)) System.IO.File.Delete(oldimagePath);
+                    producto.ImagenUrl = oldImage;
+                    ModelState.AddModelError(string.Empty, imagen.Error!);
+                    return await VistaConCategoriasAsync(producto);
                 }
+
+                newImage = imagen.NombreArchivo;
             }
 
-            // Asignar los valores al objeto que se persistirá
-            producto.ImagenUrl = existingProduct.ImagenUrl; // si no se subió nueva imagen conserva
+            // Si no se subió imagen nueva se conserva la anterior.
+            producto.ImagenUrl = newImage ?? oldImage;
 
-            var success = await _productoService.EditarAsync(producto);
-            if (!success) return NotFound();
+            bool success;
+            try
+            {
+                success = await _productoService.EditarAsync(producto);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Error al editar el producto {ProductoId}; se descarta la imagen {Imagen}.",
+                    id,
+                    newImage ?? "(sin imagen nueva)");
+                _imagenService.Eliminar(newImage);
+                throw;
+            }
+
+            if (!success)
+            {
+                // La BD no se actualizó: se descarta la imagen nueva y se conserva la anterior.
+                _logger.LogWarning(
+                    "No se pudo actualizar el producto {ProductoId}; se descarta la imagen nueva {Imagen}.",
+                    id,
+                    newImage ?? "(sin imagen nueva)");
+                _imagenService.Eliminar(newImage);
+                producto.ImagenUrl = oldImage;
+                ModelState.AddModelError(string.Empty, "No se pudo guardar el producto. Intenta de nuevo.");
+                return await VistaConCategoriasAsync(producto);
+            }
+
+            // La imagen anterior solo se borra cuando la BD ya apunta a la nueva.
+            if (newImage != null) _imagenService.Eliminar(oldImage);
+
             _logger.LogInformation(
                 "El usuario {Usuario} editó el producto {ProductoId}.",
                 User.Identity?.Name ?? "anónimo",
@@ -204,22 +265,44 @@ namespace TechStore.Controllers
             {
                 _logger.LogWarning("No se encontró el producto {ProductoId} para eliminarlo.", id);
                 return NotFound();
-            };
-
-            if (!string.IsNullOrEmpty(producto.ImagenUrl))
-            {
-                var imagePath = Path.Combine(_env.WebRootPath, "images", producto.ImagenUrl);
-                if (System.IO.File.Exists(imagePath)) System.IO.File.Delete(imagePath);
             }
 
             var success = await _productoService.EliminarAsync(id);
-            if (!success) return NotFound();
+            if (!success)
+            {
+                _logger.LogWarning("No se pudo eliminar el producto {ProductoId}; se conserva su imagen.", id);
+                TempData["ErrorMessage"] = "No se pudo eliminar el producto. Intenta de nuevo.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            // La imagen solo se borra cuando la BD ya no tiene el producto; si falla, no se revierte la operación.
+            _imagenService.Eliminar(producto.ImagenUrl);
+
             _logger.LogInformation(
                 "El usuario {Usuario} eliminó el producto {ProductoId}.",
                 User.Identity?.Name ?? "anónimo",
                 id);
             TempData["SuccessMessage"] = "Producto eliminado exitosamente.";
             return RedirectToAction(nameof(Index));
+        }
+
+        // Evita que un CategoriaId manipulado llegue a la FK de la BD y termine en una excepción.
+        private async Task<bool> ValidarCategoriaAsync(Producto producto)
+        {
+            if (await _categoriaService.ObtenerPorIdAsync(producto.CategoriaId) != null) return true;
+
+            _logger.LogWarning(
+                "El usuario {Usuario} intentó guardar un producto con la categoría inexistente {CategoriaId}.",
+                User.Identity?.Name ?? "anónimo",
+                producto.CategoriaId);
+            ModelState.AddModelError(nameof(Producto.CategoriaId), "La categoría seleccionada no existe.");
+            return false;
+        }
+
+        private async Task<IActionResult> VistaConCategoriasAsync(Producto producto)
+        {
+            ViewBag.Categorias = (await _categoriaService.ObtenerTodasAsync()).OrderBy(c => c.Nombre).ToList();
+            return View(producto);
         }
     }
 }

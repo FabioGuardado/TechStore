@@ -408,6 +408,7 @@ dotnet test TechStore.E2E
 | Problema | Solución |
 |---|---|
 | `A network-related or instance-specific error...` al arrancar | SQL Server no está encendido (`docker start techstore-sql`) o la cadena de conexión no apunta a tu servidor (revisa el paso 3). |
+| `ERROR DE ARRANQUE: No se pudo conectar a SQL Server o la base de datos no está lista...` (la app termina con código 1) | La app ya no muestra un stack trace si falla la inicialización. Revisa la cadena de conexión `TechStoreDB` en `appsettings.json`, que SQL Server esté encendido y ejecuta `dotnet ef database update`. El detalle técnico queda en el log (nivel Critical). |
 | `Login failed for user 'techstore_user'` | No ejecutaste `create_user.sql` (paso 2). |
 | `Invalid object name 'AspNetUsers'` | Falta aplicar la migración: `dotnet ef database update`. |
 | No puedo entrar como Administrador | Revisa `dotnet user-secrets list`; si falta `AdminInicial`, configúralo y reinicia la app. Mira la consola: si la contraseña no cumple las reglas, ahí aparece el error. |

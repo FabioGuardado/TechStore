@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -154,6 +154,64 @@ public class UsuariosControllerTests
     }
 
     [Fact]
+    public async Task CambiarRol_CuandoAddToRoleFalla_RestauraLosRolesAnterioresYMuestraError()
+    {
+        var logger = new Mock<ILogger<UsuariosController>>();
+        var controller = CreateController(out var userManager, logger: logger);
+        var zoe = new IdentityUser("zoe") { Id = "id-zoe" };
+        var rolesActuales = new List<string> { "Cliente" };
+        userManager.Setup(u => u.FindByIdAsync("id-zoe")).ReturnsAsync(zoe);
+        userManager.Setup(u => u.GetRolesAsync(zoe)).ReturnsAsync(rolesActuales);
+        userManager.Setup(u => u.AddToRoleAsync(zoe, "Vendedor"))
+            .ReturnsAsync(IdentityResult.Failed(new IdentityError { Code = "Falla" }));
+
+        var result = await controller.CambiarRol("id-zoe", "Vendedor");
+
+        Assert.IsType<RedirectToActionResult>(result);
+        userManager.Verify(u => u.AddToRolesAsync(zoe, rolesActuales), Times.Once);
+        Assert.NotNull(controller.TempData["ErrorMessage"]);
+        Assert.Null(controller.TempData["SuccessMessage"]);
+        userManager.Verify(u => u.UpdateSecurityStampAsync(It.IsAny<IdentityUser>()), Times.Never);
+        VerifyLog(logger, LogLevel.Warning, Times.Once());
+    }
+
+    [Fact]
+    public async Task CambiarRol_CuandoNoSePuedenRestaurarLosRoles_RegistraUnErrorCritico()
+    {
+        var logger = new Mock<ILogger<UsuariosController>>();
+        var controller = CreateController(out var userManager, logger: logger);
+        var zoe = new IdentityUser("zoe") { Id = "id-zoe" };
+        var rolesActuales = new List<string> { "Cliente" };
+        userManager.Setup(u => u.FindByIdAsync("id-zoe")).ReturnsAsync(zoe);
+        userManager.Setup(u => u.GetRolesAsync(zoe)).ReturnsAsync(rolesActuales);
+        userManager.Setup(u => u.AddToRoleAsync(zoe, "Vendedor"))
+            .ReturnsAsync(IdentityResult.Failed(new IdentityError { Code = "Falla" }));
+        userManager.Setup(u => u.AddToRolesAsync(zoe, rolesActuales))
+            .ReturnsAsync(IdentityResult.Failed(new IdentityError { Code = "Falla2" }));
+
+        await controller.CambiarRol("id-zoe", "Vendedor");
+
+        VerifyLog(logger, LogLevel.Critical, Times.Once());
+    }
+
+    [Fact]
+    public async Task CambiarRol_CuandoRemoveFromRolesFalla_NoAgregaElRolNuevo()
+    {
+        var controller = CreateController(out var userManager);
+        var zoe = new IdentityUser("zoe") { Id = "id-zoe" };
+        var rolesActuales = new List<string> { "Cliente" };
+        userManager.Setup(u => u.FindByIdAsync("id-zoe")).ReturnsAsync(zoe);
+        userManager.Setup(u => u.GetRolesAsync(zoe)).ReturnsAsync(rolesActuales);
+        userManager.Setup(u => u.RemoveFromRolesAsync(zoe, rolesActuales))
+            .ReturnsAsync(IdentityResult.Failed(new IdentityError { Code = "Falla" }));
+
+        await controller.CambiarRol("id-zoe", "Vendedor");
+
+        userManager.Verify(u => u.AddToRoleAsync(It.IsAny<IdentityUser>(), It.IsAny<string>()), Times.Never);
+        Assert.NotNull(controller.TempData["ErrorMessage"]);
+    }
+
+    [Fact]
     public async Task Bloquear_ConElPropioUsuario_NoBloqueaYRedirigeAlIndice()
     {
         var controller = CreateController(out var userManager, usuarioActualId: "id-ana");
@@ -234,6 +292,10 @@ public class UsuariosControllerTests
         userManager = new Mock<UserManager<IdentityUser>>(
             Mock.Of<IUserStore<IdentityUser>>(), null!, null!, null!, null!, null!, null!, null!, null!);
         userManager.Setup(u => u.GetUserId(It.IsAny<ClaimsPrincipal>())).Returns(usuarioActualId);
+        userManager.Setup(u => u.RemoveFromRolesAsync(It.IsAny<IdentityUser>(), It.IsAny<IEnumerable<string>>())).ReturnsAsync(IdentityResult.Success);
+        userManager.Setup(u => u.AddToRoleAsync(It.IsAny<IdentityUser>(), It.IsAny<string>())).ReturnsAsync(IdentityResult.Success);
+        userManager.Setup(u => u.AddToRolesAsync(It.IsAny<IdentityUser>(), It.IsAny<IEnumerable<string>>())).ReturnsAsync(IdentityResult.Success);
+        userManager.Setup(u => u.SetLockoutEndDateAsync(It.IsAny<IdentityUser>(), It.IsAny<DateTimeOffset?>())).ReturnsAsync(IdentityResult.Success);
         if (context != null)
         {
             userManager.Setup(u => u.Users).Returns(context.Users);
